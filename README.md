@@ -149,4 +149,67 @@ LimaCharlie also offers a complete overview of the system the sensor is running 
 
 <img width="889" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/24000473-4895-42c9-a557-e6c95f6c5ec9">
 
+**<h3>Step 4: Deploying Countermeasures for Incident Detection and Response</h3>**
 
+**<h4>4A. Performing Lsass.exe and Vssadmin Shadow Attacks</h4>**
+
+The Local Security Authority Subsystem Service (LSASS) is a process that handles user authentication, security policies, and auditing on Windows systems. It's executable, lsass.exe is a common way of gaining access to user credentials, especially the domain admin's. This has been observed previously in attacker groups such as HAFNIUM and GALLIUM, and it can be said that dumping the lsass process from memory could possible be a breach of sensitive data.
+
+Using the Sliver framework's malicious executable located on our victim machine, we can spawn a remote shell and have it dump the lsass process by running the command 
+
+```
+procdump -n lsass.exe -s lsass.dmp
+```
+This can then be observed in the Limacharlie Timeline under the **SENSITIVE_PROCESS_ACCESS** category. 
+
+
+![Pasted Graphic 3](https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/0af4a954-17c1-4520-a237-612945ded7b6)
+
+
+<img width="1224" alt="Pasted Graphic" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/26c5887a-caa5-4bed-9a90-c5356b63ce98">
+
+Using the same shell, we can then proceed to attack the vssadmin command line tool using the Volume Shadow Copy Service, which is responsible for displaying the current volume shadow copy backups and all installed shadow copy writers and providers. Many malicious entities, particularly ransomware gangs employ this technique as one of the common ways of deleting backups present in the system after gaining administrative privileges. 
+
+In the shell, we then proceed to run the following command:
+
+```
+vssadmin delete shadows /all
+```
+
+The delete shadows command removes all backup copies of computer files and volumes from the system completely. This is an irreversible command, and it can be seen by default under LimaCharlie's Detections and Timeline events as malicious traffic.
+
+<img width="1470" alt="Pasted Graphic 4" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/f75d45c2-c5ee-4ae3-a8b0-26ceb466615f">
+
+
+<img width="1226" alt="Pasted Graphic 5" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/d0cc4468-5337-4b11-816f-e8fd581ffd5a">
+
+
+**<h4>4B. Crafting and Testing Detection and Response Rules</h4>**
+
+To prevent this, we need to craft a Detection and Response (D&R) Rule. To do this, we head to Automation -> D&R Rules and then proceed to enter the following data. This rule works by first checking whether the event is in the **SENSITIVE_PROCESS_ACCESS** category, and then it proceeds to look for commands with a file path of where the event has happened and if they involve the lsass.exe file.
+
+<img width="738" alt="op and" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/0752ecf0-79c4-4f6e-b58d-2600eab2d963">
+
+We can then test this rule by going further down and clicking on the **Test Event** button. This shows us that the rule has successfully managed to detect malicious traffic that is similar in terms of telemtry to this type of intrustion.
+
+<img width="707" alt="Pasted Graphic 2" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/24f814b9-6e6c-4a88-a201-5a8ae9d0548f">
+
+Following on, we then proceed to make a similar rule for the vssadmin event, but with a response rule this time. This rule utilizes the COMMAND_LINE parameter of LimaCharlie's detection rules to check for whether the words 'delete', 'shadow' and 'all' are present within one command line instruction.
+
+<img width="277" alt="path eventCOMMAND_LINE" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/b95308a9-1cf9-4b34-a8f8-9a956bf12bd9">
+
+The response section involves using action: task, which tells the system to perform the commands deny_tree, which tells the sensor that all activity starting at a specific process (and its children) should be denied and killed. 
+
+```
+- action: report
+  name: vss_deletion_kill_it
+- action: task
+  command:
+    - deny_tree
+    - <<routing/parent>>
+```
+We then test out our newly crafted D&R rule by trying to run the delete shadows command again.
+
+<img width="616" alt="Pasted Graphic 6" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/fb9b7e04-cce5-4a30-80c6-46522354c4f6">
+
+However, this time the command fails due to the response rule that we crafted earlier - deny_tree which kills the process responsible for executing the vssadmin commands, keeping the shadow copies safe.
