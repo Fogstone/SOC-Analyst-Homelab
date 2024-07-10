@@ -213,3 +213,31 @@ We then test out our newly crafted D&R rule by trying to run the delete shadows 
 <img width="616" alt="Pasted Graphic 6" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/fb9b7e04-cce5-4a30-80c6-46522354c4f6">
 
 However, this time the command fails due to the response rule that we crafted earlier - deny_tree which kills the process responsible for executing the vssadmin commands, keeping the shadow copies safe.
+
+
+**<h3>Step 5: Tuning Detection Rules for False Positives: </h3>**
+
+False positives are used to refer to alerts that may suggest a potential threat but are eventually proven to be harmless. In most cases, it turns out that a lot of traffic is legitimate and has simply been flagged due to improper customization of the detection rules. To solve this, we first take a look at what traffic is being detected by the sensors. 
+
+<img width="1214" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/9d846729-b2ba-4848-88a3-eb207e8df574">
+
+We can see that there is an enormous amount of traffic originating from the usage of the Svchost process, which is a system process that can host one or more Windows services in the Windows NT family of operating systems. This eats up a lot of space and makes it more difficult to sift out malicious activity from legitimate network traffic. This can be resolved by crafting some False Positive rules for the sensor. 
+
+Going to Automation -> False Positive Rules in LimaCharlie, we can use the following rule to make sure the legitimate traffic of the svchost traffic is not being detected under our Events tab. This rule checks for two things: 
+	1. Whether the -k flag is present in the command, which is used to specify the service group in which the service is running.
+ 	2. If the command is being run from System32, which is a privileged directory, and is usually run by services such as svchost.
+
+<img width="724" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/ce0cc240-4645-4b43-ad11-37e76a60e883">
+
+
+We then to go the **Target Detection** tab to check whether our rule is correctly detecting the false positive traffic by taking one of the detected events as our test data.
+
+
+<img width="520" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/3379e1dd-a96a-45da-ad9a-97baeadc7937">
+
+<img width="728" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/cffc7c1f-1a6a-436a-a390-f98efda61d10">
+
+We can then see that the traffic has been successfully detected as a false positive by the rule we've just crafted, reducing the amount of data a human has to sift through in the future. The ideal usage scenario would be to let this rule run over the course of a few days or a week, see how it reacts to day-to-day traffic and then make changes accordingly. 
+
+
+
