@@ -1,4 +1,4 @@
-This is a report based on a homelab created using LimaCharlie EDR with Sysmon and VMWare for lab containers.
+This is a report based on a homelab created using LimaCharlie EDR with Sysmon sensors and YARA signatures and VMWare for lab containers.
 
 **<h2>Initial Setup:</h2>**
 
