@@ -239,5 +239,65 @@ We then to go the **Target Detection** tab to check whether our rule is correctl
 
 We can then see that the traffic has been successfully detected as a false positive by the rule we've just crafted, reducing the amount of data a human has to sift through in the future. The ideal usage scenario would be to let this rule run over the course of a few days or a week, see how it reacts to day-to-day traffic and then make changes accordingly. 
 
+**<h3>Step 6: Automating further Scanning using YARA Signatures:</h3>**
 
+YARA is a free, open-source tool widely used in cybersecurity for malware detection and analysis. It  uses a rule-based approach to identify malicious files  by searching for specific patterns. These patterns can be text strings,  code sequences, or other indicators that are often  unique to a particular type of malware. In this project, we utilize the capabilities of YARA to automate our detections based on popular code signatures for malware.
 
+**<h4>6A. Adding YARA Signatures for the Sliver C2 Payload</h4>**
+
+Sliver C2 payloads can be detected using Yara rules using metrics such as:
+
+**1. Canary Strings:** Sliver allows embedding canary domains directly in the compiled binary. These are plain text strings that can be a giveaway of the attacker's intent.  Yara rules can target these canary strings for initial detection.
+
+**2. Generic Signatures:** While Sliver payloads are obfuscated, some general patterns might be identifiable. Resources like the "h3x2b" Yara rule collection offer generic signatures for detecting encryption routines, packed or obfuscated code sections, and injection functionalities. 
+
+Using these, we can make use of the UK National Cyber Security Centre's list of YARA signatures to create some rules in LimaCharlie. This involves 3 sections:
+
+<img width="1031" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/59e475c0-0439-4b1e-8a20-a2d746700e5d">
+
+The first part of the rule checks for information like specific strings, that the rule will search for within the target file. For example, it looks for strings like "/sliver/" and "sliverpb.", which might be indicative of a Sliver binary. Furthermore, it checks for function names such as These functions include "RevToSelfReq" (used for process injection), "ScreenshotReq" (used for capturing screenshots), and "KillSessionReq" (used for terminating sessions).
+
+<img width="1196" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/944b8427-7a8f-4e07-a57e-b77a69fe10a2">
+
+<img width="1136" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/8785b39d-ac79-4f0e-986a-73d6a98faddd">
+
+The second part of the rule attempts to look for unique comparison (CMP) instructions within a function named "Proxy isNotFound" while simultaneously checking for specific values at memory locations. The next part of the rule also looks for something similar, checking for instructions that Sliver payloads generally receive from the C&C servers while also warning of false positives. 
+
+**<h4>6B. Crafting D&R Rules to utilize the YARA signatures</h4>**
+
+To make use of the previously developed YARA signatures, we must make a rule in the Detection & Response section of LimaCharlie to employ these rules and take action when the requisite traffic is detected. 
+
+![image](https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/0297990d-5d31-4aae-af31-ac9c53edee12)
+
+This rule is looking for any detections involving a Process object, then generates a report mentioning the Yara rule that triggered the detection and adds a "yara_detection" tag to the event. Additionally, it sets a time limit for how long the event data should be retained, which can help in filtering out traffic later on.
+
+To test this, we can manually run a YARA scan by using the EDR Sensor Console and running the following command, which checks the Downloads directory. 
+
+```yara_scan hive://yara/sliver -f C:\Users\User\Downloads\SPANISH_EXHAUST.exe```
+
+<img width="924" alt="Pasted Graphic 14" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/2b6d125b-e422-4f8f-9e7a-c90469ab053f">
+
+We immediately get a hit, telling us that a malicious executable file is sitting in the Downloads directory. However, we can automate this process further by using the power of the D&R rules even further. 
+
+<img width="367" alt="image" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/2423d17a-d1c1-435f-8eb2-87950d12fa98">
+
+```
+- action: report
+  name: EXE dropped in Downloads directory
+- action: task
+  command: yara_scan hive://yara/sliver -f "{{ event.FILE_PATH }}
+  investigation: Yara scan EXE
+  suppression:
+    is_global: false
+    keys:
+      - '{{ .event.FILE_PATH }}'
+      - Yara Scan Exe
+    max_count: 1
+    period: 1m
+```
+
+This time, we create a rule that checks if there are any downloads into the Downloads directory. We then use the above code block so that every time an executable file is downloaded into the Downloads directory, a YARA scan is triggered to see if that file triggers the Sliver payload signature and creates an alert. Next, we manually drop another execcutable into the directory see if this rule is working as intended. 
+
+<img width="1214" alt="Pasted Graphic 17" src="https://github.com/Fogstone/SOC-Analyst-Homelab/assets/51188893/aa064246-6669-40ac-8241-3bd53be38ba2">
+
+We can see that the rule is working successfully and is generating reports based on the actions being taken.
